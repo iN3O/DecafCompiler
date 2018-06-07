@@ -1,0 +1,13 @@
+class Program{
+	int a;
+	int function(){
+		int b;
+		b = a;
+		return b;
+	}
+	int function1(){
+		int c;
+		c = a+1;
+		return c;
+	}
+}

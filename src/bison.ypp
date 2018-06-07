@@ -1,0 +1,342 @@
+%{
+#include <cstdio>
+#include <iostream>
+#include <string>
+#include <stdarg.h>
+#include <list>
+#include <string>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Type.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/CallingConv.h>
+#include <llvm/Bitcode/ReaderWriter.h>
+#include <llvm/Analysis/Verifier.h>
+#include <llvm/Assembly/PrintModulePass.h>
+#include <llvm/IR/IRBuilder.h>
+//#include <llvm/Target/TargetSelect.h>
+#include <llvm/ExecutionEngine/GenericValue.h>
+#include <llvm/ExecutionEngine/JIT.h>
+#include <llvm/ADT/APInt.h>
+#include <llvm/Support/raw_ostream.h>
+
+using namespace llvm;
+
+#include "AstStructure.hpp"
+#include "Tab.hpp"
+
+using namespace std;
+
+
+int yylex(); 
+int yyerror(const char *p) { cerr << "Error!" << endl; }
+
+extern MainClass *AST;
+extern Value* ErrorV(const char *);
+ArgExpression *AE;
+CallArgExpression *CAE;
+CallOutArgExpression *COAE;
+VariableDeclaration *VD;
+vector<ArgExpression*> *ArE_list;
+VarExpression *VEx;
+
+
+%}
+
+%token CLASS 
+%token PROGRAM 
+%token INT
+%token BOOLEAN
+%token VOID
+%token IF
+%token ELSE
+%token FOR
+%token PLUS_EQ
+%token MINUS_EQ
+%token EQUAL
+%token CONTINUE
+%token RETURN
+%token BREAK
+%token CALLOUT
+%token AND
+%token OR
+%token EXCLAMATORY
+%token PERCENTAGE
+%token DIVIDE
+%token MULTIPLY
+%token ADD
+%token SUBSTRACT
+%token LESS_EQUAL
+%token LESS
+%token GREATER_EQUAL
+%token GREATER
+%token INT_LITERAL
+%token HEX_LITERAL
+%token TRUE_TOKEN
+%token FALSE_TOKEN
+%token ID
+%token EQUALEQUAL
+%token NOTEQUAL
+%token COMMA
+%token SEMICOLON
+%token OPENING_CURLY
+%token ENDING_CURLY
+%token OPENING_ROUND
+%token ENDING_ROUND
+%token OPENING_SQUARE
+%token ENDING_SQUARE 
+%token STRING_LITERAL
+%token CHAR_LITERAL
+
+
+%union
+{
+	char* string_val;
+	int int_val;
+	char *char_val;
+	bool* bool_val;
+	BinaryOperator1 *bopt;
+	Expression *expr;
+	list<Expression*> *expr_list;
+	Statement *stmt;
+	list<Statement*> *stmt_list;
+	AssignOperator Assign_Op;
+	BlockStatement* blk;
+	list<char*>* list_id;
+	list<VariableDeclaration*>* list_vardec;
+	list<VarExpression*>* list_varex;
+	FieldDeclaration* fdecl;
+	list<ClassBodyElement*>* cbe_list;
+	ClassBodyElement* cbe_;
+	MethodDeclaration* mede;
+	vector<CallOutArgExpression*>* coae_list;
+	MainClass *mc;
+	vector<CallArgExpression*>* cae_list;
+	VarExpression* ve;
+	FormalExpression* fe;
+	vector<ArgExpression*>* ae_list;
+	LocationExpression* loc_expr;
+	VariableDeclaration *vardec;
+  ArgExpression *a_e;
+}
+
+
+%right EQUAL
+%left OR
+%left AND
+%left EQUALEQUAL NOTEQUAL
+%nonassoc LESS GREATER LESS_EQUAL GREATER_EQUAL
+%left ADD SUBSTRACT
+%left MULTIPLY DIVIDE PERCENTAGE
+%right EXCLAMATORY UMINUS
+
+%type <string_val> HEX_LITERAL
+%type <int_val> INT_LITERAL
+%type <string_val> STRING_LITERAL
+%type <char_val> CHAR_LITERAL
+%type <string_val> TYPE
+%type <string_val> INT
+%type <string_val> BOOLEAN
+%type <string_val> VOID
+%type <bool_val> TRUE_TOKEN
+%type <bool_val> FALSE_TOKEN
+%type <blk> ELSE_BLK
+%type <string_val> ID
+%type <list_vardec> VARIABLES
+%type <string_val> GREATER_EQUAL
+%type <string_val> GREATER
+%type <int_val> ARR
+%type <list_varex> VAR_DECLARATION
+%type <fdecl> FIELD_DECL
+%type <cbe_list> CLASS_BODY
+%type <cbe_> CLASS_BODY_DECL
+%type <string_val> PROGRAM
+%type <mede> METHOD_DECL
+%type <expr> EXPR
+%type <loc_expr> LOCATION
+%type <stmt> METHOD_CALL
+%type <blk> BLOCK
+%type <stmt> STATEMENT
+%type <stmt_list> STATEMENTS
+%type <expr> LITERAL
+%type <expr> CALLOUT_ARG
+%type <coae_list> CALL_OUT
+%type <coae_list> CALL_OUT_ARGS
+%type <mc> program;
+%type <cae_list> EXPRS_COMMA
+%type <cae_list> arguments_mult
+%type <Assign_Op> ASSIGN_OP
+%type <expr> EX_PR
+%type <list_id> ID_PLUS
+%type <fe> FORMAL_LIST
+%type <a_e> FORMALS
+%type <ae_list> FORMALSCOMMALIST
+
+
+//-- GRAMMAR RULES ---------------------------------------
+%%
+program: CLASS PROGRAM OPENING_CURLY CLASS_BODY ENDING_CURLY
+		{
+			AST = new MainClass($4);					/// list<ClassBodyElement*>
+		}
+	;
+
+CLASS_BODY : { $$ = new list<ClassBodyElement*>(); }				/// BodyElement
+    		| CLASS_BODY CLASS_BODY_DECL { $$ = $1; $$->push_back($2);}								/// BodyElement
+		;
+
+CLASS_BODY_DECL : FIELD_DECL { $$ = new ClassBodyElement($1); }					/// Declaration
+		| METHOD_DECL { $$ = new ClassBodyElement($1); }						/// Declaration
+		;
+
+
+METHOD_DECL: TYPE ID OPENING_ROUND FORMAL_LIST ENDING_ROUND BLOCK { $$ = new MethodDeclaration($1,$2,$4,$6) ; }			/// Type Id Formal_list Block
+		;
+
+FIELD_DECL: TYPE VARIABLES SEMICOLON { $$ = new FieldDeclaration($1,$2); }
+		;
+
+
+VARIABLES: ID ARR { $$ = new list<VariableDeclaration*>();VD = new VariableDeclaration($1,$2); $$->push_back(VD);}
+		| VARIABLES COMMA ID ARR{ $$ = $1; VD = new VariableDeclaration($3,$4); $$->push_back(VD);}
+		;
+
+
+ARR: { $$ = 0; }
+	| OPENING_SQUARE INT_LITERAL ENDING_SQUARE { $$ = $2; }
+	;
+
+
+FORMAL_LIST : /* Empty */	{ ArE_list = new vector<ArgExpression*>(); $$ = new FormalExpression(ArE_list); }	/// list of ArgExpression
+		| FORMALS FORMALSCOMMALIST { ArE_list = $2; ArE_list->push_back($1) ;$$ = new FormalExpression(ArE_list); }				/// list of ArgExpression
+		;
+
+FORMALS : TYPE ID { $$ = new ArgExpression($1,$2);}
+
+
+FORMALSCOMMALIST	: { $$ = new  vector<ArgExpression*>(); }
+	| COMMA FORMALS FORMALSCOMMALIST { $$ = $3; $$->push_back($2); }
+	;
+
+
+TYPE : INT 	{$$ = $1;}
+	| BOOLEAN {$$ = $1;}
+	| VOID {$$ = $1;}
+	;
+
+
+BLOCK: OPENING_CURLY VAR_DECLARATION STATEMENTS ENDING_CURLY { $$ = new BlockStatement($2,$3); }  //// list<VarExpression*> list<Statements*>
+	;
+
+
+VAR_DECLARATION: /*EMPTY*/ { $$ = new list<VarExpression*>(); }       ////  VarExpression
+		| VAR_DECLARATION TYPE ID_PLUS SEMICOLON { $$ = $1; VEx = new VarExpression($2,$3); $$->push_back(VEx); }
+		;
+
+
+STATEMENTS: /*EMPTY*/ { $$ = new list<Statement*>(); }
+		| STATEMENTS STATEMENT { $$ = $1 ; $$->push_back($2); }
+		;
+	
+
+
+ID_PLUS: ID { $$ = new list<char*>(); $$->push_back($1);}			/// char *
+	| ID_PLUS COMMA ID { $$ = $1; $$->push_back($3); }
+	;
+		
+
+STATEMENT: LOCATION ASSIGN_OP EXPR SEMICOLON  { $$ = new LocationAssignmentStatement($1,$2,$3); }			/// Location Assignop Expr
+		| METHOD_CALL SEMICOLON { $$ = $1; }
+		| IF OPENING_ROUND EXPR ENDING_ROUND BLOCK ELSE_BLK { $$ = new IfStatement($3,$5,$6); }
+		| FOR ID EQUAL EXPR COMMA EXPR BLOCK { $$ = new ForStatement($2,$4,$6,$7); }
+		| RETURN EX_PR SEMICOLON { $$ =new ReturnStatement($2); }
+		| BREAK SEMICOLON { $$ =new BreakStatement();}
+		| CONTINUE SEMICOLON { $$ = new ContinueStatement(); }
+		| BLOCK { $$ = $1; }
+		;		
+	
+
+ELSE_BLK: /*EMPTY*/ { $$ = 0; }
+	| ELSE BLOCK { $$ = $2; }
+	;
+
+EX_PR: /*EMPTY*/ { $$ = new RoundExpression(NULL); }
+	| EXPR { $$ = $1; }
+	;
+
+
+ASSIGN_OP : EQUAL { $$ = ASSEQ; }
+		| PLUS_EQ { $$ = ASSPEQ; }
+		| MINUS_EQ { $$ = ASSMEQ; }
+		;
+
+
+METHOD_CALL: ID OPENING_ROUND arguments_mult ENDING_ROUND { $$ = new MethodStatement($1,$3); }
+		| CALLOUT OPENING_ROUND STRING_LITERAL CALL_OUT_ARGS ENDING_ROUND { $$ = new CalloutStatement($3,$4); }
+		;
+
+
+arguments_mult: /*Empty*/ { $$ = new vector<CallArgExpression*>(); }
+		| EXPRS_COMMA { $$ = $1; }
+		;
+
+
+EXPRS_COMMA:  EXPR { $$ = new vector<CallArgExpression*>(); CAE = new CallArgExpression($1); $$->push_back(CAE); }
+		| EXPRS_COMMA COMMA EXPR { $$ = $1; CAE = new CallArgExpression($3); $$->push_back(CAE);  }
+		;
+
+
+CALL_OUT_ARGS: /*Empty*/ { $$ = NULL;}
+		| COMMA CALL_OUT { $$ = $2; }
+		;
+
+			;
+CALL_OUT: CALLOUT_ARG COMMA CALL_OUT { $$ = $3; COAE = new CallOutArgExpression($1); $$->push_back(COAE); }
+		| CALLOUT_ARG { $$ = new vector<CallOutArgExpression*>(); COAE = new CallOutArgExpression($1); $$->push_back(COAE); }
+		;
+
+
+CALLOUT_ARG: EXPR { $$ = $1; }
+	| STRING_LITERAL { $$ = new StringExpression($1); }
+	;
+
+
+LOCATION: ID { $$ = new LocationExpression($1,NULL); }
+	| ID OPENING_SQUARE EXPR ENDING_SQUARE { $$ = new LocationExpression($1,$3); }
+	;
+
+
+EXPR: LOCATION { $$ = $1; }
+	| METHOD_CALL { $$ = new MethodExpression($1); }
+	| LITERAL { $$ = $1; }
+	| EXPR ADD EXPR { $$ = new BinOpExpression($1,BADD,$3);}
+	| EXPR SUBSTRACT EXPR { $$ = new BinOpExpression($1,BSUB,$3);}
+	| EXPR MULTIPLY EXPR { $$ =new BinOpExpression($1,BMUL,$3); }
+	| EXPR DIVIDE EXPR { $$ = new BinOpExpression($1,BDIV,$3); }
+	| EXPR PERCENTAGE EXPR { $$ = new BinOpExpression($1,BMOD,$3);}
+	| EXPR AND EXPR { $$ = new BinOpExpression($1,BAND,$3); }
+	| EXPR OR EXPR { $$ = new BinOpExpression($1,BOR,$3); }
+	| EXPR EQUALEQUAL EXPR { $$ = new BinOpExpression($1,BEQQ,$3); }
+	| EXPR NOTEQUAL EXPR { $$ = new BinOpExpression($1,BNEQ,$3); }
+	| EXPR LESS_EQUAL EXPR { $$ = new BinOpExpression($1,BLEQ,$3); }
+	| EXPR LESS EXPR { $$ = new BinOpExpression($1,BLT,$3); }
+ 	| EXPR GREATER_EQUAL EXPR { $$ = new BinOpExpression($1,BGEQ,$3);}
+ 	| EXPR GREATER EXPR { $$ =new BinOpExpression($1,BGT,$3); }
+	| SUBSTRACT EXPR	{ $$ = new UnaryExpression($2,UMIN);} %prec UMINUS 
+	| EXCLAMATORY EXPR { $$ = new UnaryExpression($2,UNEG);}
+	| OPENING_ROUND EXPR ENDING_ROUND{ $$ = new RoundExpression($2); }
+	;
+
+
+LITERAL: INT_LITERAL { $$ = new IntLiteral($1); }
+	| CHAR_LITERAL { $$ = new CharLiteral($1); }
+	| TRUE_TOKEN { $$ = new BoolLiteral(true);}
+	| FALSE_TOKEN { $$ = new BoolLiteral(false);}
+	| HEX_LITERAL { $$ = new HexLiteral($1);}
+
+
+
+%%
+
